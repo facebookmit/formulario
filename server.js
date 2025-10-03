@@ -1,4 +1,4 @@
-// server.js - Versión Final (con peso en inversión)
+// server.js - Versión Final y Corregida (3 de Octubre)
 
 import express from 'express';
 import crypto from 'crypto';
@@ -7,40 +7,42 @@ import fetch from 'node-fetch';
 const app = express();
 app.use(express.json());
 
-// Estas variables se configurarán en Render (Environment Variables)
 const PIXEL_ID = process.env.PIXEL_ID;
 const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
 
 function isQualified(payload) {
   console.log("Recibido para calificar:", payload); 
 
-  // --- Nombres de campo extraídos de tus variables de GHL ---
-  const diagnostico = payload['1_has_sido_diagnosticada_con_cncer_de_mama_en_etapa_3_o_4_y_ests_buscando_un_camino_clnico_real_que_te_ayude_a_reducir_los_efectos_de_la_enfermedad_en_los_prximos_45_das'] || '';
-  const compromiso = payload['2_ests_dispuesta_a_comprometerte_con_un_proceso_integral_que_combine_ciencia_nutricin_celular_y_transformacin_emocional_y_que_requiere_tu_participacin_activa_durante_al_menos_45_das'] || '';
-  const inversion = payload['3_en_este_momento_de_tu_vida_qu_nivel_de_inversin_te_sera_posible_destinar_a_un_programa_de_sanacin_integral_y_personalizado_con_acompaamiento_profesional_y_tecnologa_clnica_avanzada'] || '';
-  const costosMedicamentos = payload['4_productos_y_medicamentos'] || '';
+  // --- CAMBIO FINAL: Nombres de campo corregidos para que coincidan EXACTAMENTE con los datos de GHL ---
+  const diagnostico_data = payload['1 ¿Has sido diagnosticada con cáncer de mama en etapa 3 o 4 y estás buscando un camino clínico real que te ayude a reducir los efectos de la enfermedad en los próximos 45 días?'] || '';
+  const compromiso_data = payload['2. ¿Estás dispuesta a comprometerte con un proceso integral que combine ciencia, nutrición celular y transformación emocional, y que requiere tu participación activa durante al menos 45 días?'] || '';
+  const inversion_data = payload['3. En este momento de tu vida, ¿qué nivel de inversión te sería posible destinar a un programa de sanación integral y personalizado, con acompañamiento profesional y tecnología clínica avanzada? '] || ''; // Nota: el espacio al final es intencional
+  const costosMedicamentos_data = payload['4 . Productos y medicamentos'] || ''; // Nota: el espacio antes del punto es intencional
   
+  // --- CAMBIO FINAL: Lógica añadida para manejar respuestas que son texto o listas ---
+  const diagnostico = Array.isArray(diagnostico_data) ? diagnostico_data[0] : diagnostico_data;
+  const compromiso = Array.isArray(compromiso_data) ? compromiso_data[0] : compromiso_data;
+  const inversion = Array.isArray(inversion_data) ? inversion_data[0] : inversion_data;
+  const costosMedicamentos = Array.isArray(costosMedicamentos_data) ? costosMedicamentos_data[0] : costosMedicamentos_data;
+
   let score = 0;
 
-  // Ya no es un filtro eliminatorio, solo suma puntos
   if (diagnostico === 'Sí, y quiero resultados reales') {
-    score += 2; // Peso bajo
+    score += 2;
   }
 
-  // El compromiso sigue siendo importante
   if (compromiso === 'Sí, estoy lista y comprometida') {
-    score += 3; // Peso medio
+    score += 3;
   }
 
-  // Las preguntas de inversión tienen el peso más alto
-  if (inversion === '+DE 500$') {
-    score += 4; // Peso ALTO
+  // --- CAMBIO FINAL: Textos de respuestas corregidos para coincidir con los datos reales ('+ de 500$ al mes') ---
+  if (inversion === '+ de 500$ al mes') {
+    score += 4;
   }
-  if (costosMedicamentos === '+500$') {
-    score += 4; // Peso ALTO
+  if (costosMedicamentos === '+ de 500$ al mes') {
+    score += 4;
   }
   
-  // Nuevo umbral para priorizar la inversión
   const UMBRAL_CALIFICACION = 7; 
   
   console.log(`Puntaje final: ${score} (Umbral: ${UMBRAL_CALIFICACION})`);
@@ -52,7 +54,6 @@ function sha256(value) {
     return value ? crypto.createHash('sha256').update(String(value).trim().toLowerCase()).digest('hex') : null;
 }
 
-// Endpoint que recibe el Webhook de GoHighLevel
 app.post('/meta/conversion', async (req, res) => {
   try {
     const data = req.body;
@@ -66,9 +67,9 @@ app.post('/meta/conversion', async (req, res) => {
     console.log('Lead CALIFICADO. Enviando evento a Meta CAPI...');
 
     const event_time = Math.floor(Date.now() / 1000);
-    const user_agent = data.user_agent || req.headers['user-agent'];
-    const fbp = data.fbp || null;
-    const fbc = data.fbc || null;
+    const user_agent = data.user_agent || req.headers['user-agent'] || (data.attributionSource && data.attributionSource.userAgent);
+    const fbp = (data.attributionSource && data.attributionSource.fbp) || null;
+    const fbc = (data.fbc) || null; // GHL a veces lo envía en el nivel superior
 
     const payload = {
       data: [{
