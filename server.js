@@ -1,4 +1,4 @@
-// server.js - Versión Final y Corregida (3 de Octubre)
+// server.js - Versión Final (Corrección Ortográfica "mensuales")
 
 import express from 'express';
 import crypto from 'crypto';
@@ -13,41 +13,55 @@ const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
 function isQualified(payload) {
   console.log("Recibido para calificar:", payload); 
 
-  // --- CAMBIO FINAL: Nombres de campo corregidos para que coincidan EXACTAMENTE con los datos de GHL ---
-  const diagnostico_data = payload['1 ¿Has sido diagnosticada con cáncer de mama en etapa 3 o 4 y estás buscando un camino clínico real que te ayude a reducir los efectos de la enfermedad en los próximos 45 días?'] || '';
-  const compromiso_data = payload['2. ¿Estás dispuesta a comprometerte con un proceso integral que combine ciencia, nutrición celular y transformación emocional, y que requiere tu participación activa durante al menos 45 días?'] || '';
-  const inversion_data = payload['3. En este momento de tu vida, ¿qué nivel de inversión te sería posible destinar a un programa de sanación integral y personalizado, con acompañamiento profesional y tecnología clínica avanzada? '] || ''; // Nota: el espacio al final es intencional
-  const costosMedicamentos_data = payload['4 . Productos y medicamentos'] || ''; // Nota: el espacio antes del punto es intencional
+  // --- DEFINICIÓN DE LAS PREGUNTAS (KEYS) ---
+  // IMPORTANTE: Estos textos deben coincidir CARÁCTER POR CARÁCTER con el "Field Label" en GoHighLevel.
   
-  // --- CAMBIO FINAL: Lógica añadida para manejar respuestas que son texto o listas ---
-  const diagnostico = Array.isArray(diagnostico_data) ? diagnostico_data[0] : diagnostico_data;
-  const compromiso = Array.isArray(compromiso_data) ? compromiso_data[0] : compromiso_data;
-  const inversion = Array.isArray(inversion_data) ? inversion_data[0] : inversion_data;
-  const costosMedicamentos = Array.isArray(costosMedicamentos_data) ? costosMedicamentos_data[0] : costosMedicamentos_data;
-
-  let score = 0;
-
-  if (diagnostico === 'Sí, y quiero resultados reales') {
-    score += 2;
-  }
-
-  if (compromiso === 'Sí, estoy lista y comprometida') {
-    score += 3;
-  }
-
-  // --- CAMBIO FINAL: Textos de respuestas corregidos para coincidir con los datos reales ('+ de 500$ al mes') ---
-  if (inversion === '+ de 500$ al mes') {
-    score += 4;
-  }
-  if (costosMedicamentos === '+ de 500$ al mes') {
-    score += 4;
-  }
+  const KEY_DIAGNOSTICO = '1 ¿Has sido diagnosticada con cáncer de mama o tienes a un ser querido que quieres ayudar, y estás buscando un camino clínico real que te ayude a reducir los efectos de la enfermedad en los próximos 45 días? *';
   
-  const UMBRAL_CALIFICACION = 7; 
+  // CORREGIDO: Ahora dice "mensuales" correctamente
+  const KEY_COSTOS = '3. Costos médicos mensuales *'; 
   
-  console.log(`Puntaje final: ${score} (Umbral: ${UMBRAL_CALIFICACION})`);
+  const KEY_PRODUCTOS = '4 . Productos y medicamentos *'; // Nota: Mantenemos el espacio antes del punto si así sigue en el formulario
 
-  return score >= UMBRAL_CALIFICACION;
+  // Extraer datos del payload
+  const diagnostico_raw = payload[KEY_DIAGNOSTICO] || '';
+  const costos_raw = payload[KEY_COSTOS] || '';
+  const productos_raw = payload[KEY_PRODUCTOS] || '';
+  
+  // Normalizar (si viene como array, tomamos el primer elemento, si no, el string)
+  const respuestaDiagnostico = Array.isArray(diagnostico_raw) ? diagnostico_raw[0] : diagnostico_raw;
+  const respuestaCostos = Array.isArray(costos_raw) ? costos_raw[0] : costos_raw;
+  const respuestaProductos = Array.isArray(productos_raw) ? productos_raw[0] : productos_raw;
+
+  console.log(`Respuestas extraídas: 
+    - Dx: ${respuestaDiagnostico} 
+    - Costos: ${respuestaCostos} 
+    - Productos: ${respuestaProductos}`);
+
+  // --- LÓGICA DE CALIFICACIÓN (OR) ---
+  // Si cumple AL MENOS UNA de las condiciones, retorna TRUE.
+
+  // 1. Condición: Pregunta 1 es "Sí, y quiero resultados reales"
+  if (respuestaDiagnostico === 'Sí, y quiero resultados reales') {
+    console.log('Lead Calificado por: Respuesta Diagnóstico');
+    return true;
+  }
+
+  // 2. Condición: Pregunta 3 es "Más de 500$ al mes"
+  if (respuestaCostos === 'Más de 500$ al mes' || respuestaCostos === '+ de 500$ al mes') {
+    console.log('Lead Calificado por: Costos Médicos Altos');
+    return true;
+  }
+
+  // 3. Condición: Pregunta 4 es "Más de 500$ al mes"
+  if (respuestaProductos === 'Más de 500$ al mes' || respuestaProductos === '+ de 500$ al mes') {
+    console.log('Lead Calificado por: Gastos en Productos Altos');
+    return true;
+  }
+
+  // Si no cumple ninguna
+  console.log('Lead NO cumple con ninguna condición de segmentación.');
+  return false;
 }
 
 function sha256(value) {
@@ -57,6 +71,8 @@ function sha256(value) {
 app.post('/meta/conversion', async (req, res) => {
   try {
     const data = req.body;
+    
+    // Verificar calificación con la nueva lógica
     const qualified = isQualified(data);
 
     if (!qualified) {
@@ -69,13 +85,13 @@ app.post('/meta/conversion', async (req, res) => {
     const event_time = Math.floor(Date.now() / 1000);
     const user_agent = data.user_agent || req.headers['user-agent'] || (data.attributionSource && data.attributionSource.userAgent);
     const fbp = (data.attributionSource && data.attributionSource.fbp) || null;
-    const fbc = (data.fbc) || null; // GHL a veces lo envía en el nivel superior
+    const fbc = (data.fbc) || null; 
 
     const payload = {
       data: [{
         event_name: 'LeadQualified',
         event_time,
-        event_id: `gohighlevel_${Date.now()}`,
+        event_id: `ghl_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         action_source: 'website',
         user_data: {
           em: [sha256(data.email)],
@@ -86,7 +102,11 @@ app.post('/meta/conversion', async (req, res) => {
           fbc: fbc,
           fbp: fbp,
         },
-        custom_data: { value: 1, currency: 'USD' }
+        custom_data: { 
+            value: 10, 
+            currency: 'USD',
+            segmento: 'calificado_high_ticket'
+        }
       }]
     };
 
